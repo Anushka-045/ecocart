@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>EcoCart AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!--final anushka -->
+
+<header>
+  <div class="logo">
+    <span class="logo-eco">Eco</span><span class="logo-cart">Cart</span>
+    <span class="logo-ai">AI</span>
+  </div>
+  <div class="header-badge">
+    <div class="status-dot"></div>
+    Model online
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <div class="hero-label">🌿 Sustainability Scanner</div>
+    <h1>Know what you're<br><em>really</em> buying</h1>
+    <p class="hero-sub">Paste any product description and get an AI-powered eco impact analysis in seconds.</p>
+  </div>
+
+  <div class="input-card">
+    <span class="input-label">Product description</span>
+    <textarea id="userInput" placeholder="e.g. 100% organic cotton t-shirt made with low water usage, plastic-free packaging, GOTS certified, fair trade manufactured in Portugal..." rows="5"></textarea>
+    <div class="input-footer">
+      <span class="char-count" id="charCount">0 chars</span>
+      <button class="analyze-btn" id="analyzeBtn">
+        <span class="btn-icon">⚡</span> Analyze Sustainability
+      </button>
+    </div>
+  </div>
+
+  <div class="loading-state" id="loadingState">
+    <div class="loader-ring"></div>
+    <div class="loading-text">Analyzing product impact...</div>
+    <div class="loading-steps">
+      <div class="step-pill">Parsing materials</div>
+      <div class="step-pill">Scoring impact</div>
+      <div class="step-pill">Generating report</div>
+    </div>
+  </div>
+
+
+  <div class="results" id="results">
+  </div>
+</main>
+
+<footer>
+  Powered by RunTimers · EcoCart 2026 · Not financial or purchasing advice
+</footer>
+
+<script src="script2.js"></script>
+</body>
+</html>
