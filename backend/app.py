@@ -1,165 +1,66 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-print ("FILE STARTED")
 import requests
 import json
 import os
 from dotenv import load_dotenv
-from PyPDF2 import PdfReader
-from docx import Document
-import pytesseract
-import io
-from PIL import Image
+from bs4 import BeautifulSoup
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
+# Load environment variables
 load_dotenv()
 api_key = os.getenv("OPENROUTER_API_KEY")
+
 if not api_key:
-    raise Exception("OPENROUTER_API_KEY not found. Check your .env file")
+    raise Exception("OPENROUTER_API_KEY not found. Check environment variables")
 
 app = Flask(__name__)
 CORS(app)
 
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
-MAX_CHARS = 8000
 
-
+# ----------------------------------
+# HOME
+# ----------------------------------
 @app.route("/")
 def home():
-    return "EcoCart + BRD Backend Running"
+    return "EcoScan Backend Running"
 
 
-@app.route("/generate", methods=["POST"])
-def generate():
-    data = request.json
-    if not data or "text" not in data:
-        return jsonify({"error": "No text provided"}), 400
-
-    user_text = data.get("text")
-    if len(user_text) > MAX_CHARS:
-        user_text = user_text[:MAX_CHARS]
-
-    result = generate_from_text(user_text)
-    return jsonify(result)
-
-
-@app.route("/upload-file", methods=["POST"])
-def upload_file():
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-
-    file = request.files["file"]
-    filename = file.filename.lower()
-
-    if filename.endswith(".txt"):
-        try:
-            file_content = file.read().decode("utf-8")
-        except:
-            return jsonify({"error": "Unable to read TXT file"}), 400
-
-    elif filename.endswith(".pdf"):
-        try:
-            pdf_bytes = file.read()
-            pdf_stream = io.BytesIO(pdf_bytes)
-            reader = PdfReader(pdf_stream)
-
-            text = ""
-            for page in reader.pages:
-                extracted = page.extract_text()
-                if extracted:
-                    text += extracted + "\n"
-
-            if not text.strip():
-                return jsonify({"error": "PDF has no readable text"}), 400
-
-            if len(text) > MAX_CHARS:
-                text = text[:MAX_CHARS]
-
-            file_content = text
-
-        except Exception as e:
-            return jsonify({"error": f"Unable to read PDF: {str(e)}"}), 400
-
-    elif filename.endswith(".docx"):
-        try:
-            document = Document(file)
-            text = ""
-            for para in document.paragraphs:
-                text += para.text + "\n"
-
-            if not text.strip():
-                return jsonify({"error": "DOCX has no readable text"}), 400
-
-            file_content = text
-
-        except Exception as e:
-            return jsonify({"error": f"Unable to read DOCX: {str(e)}"}), 400
-
-    elif filename.endswith((".png", ".jpg", ".jpeg")):
-        try:
-            image = Image.open(file)
-            text = pytesseract.image_to_string(image)
-            if not text.strip():
-                return jsonify({"error": "No readable text found in image"}), 400
-            file_content = text
-        except Exception as e:
-            return jsonify({"error": f"Unable to read image: {str(e)}"}), 400
-    else:
-        return jsonify({"error": "Unsupported file type"}), 400
-
-    result = generate_from_text(file_content)
-    return jsonify(result)
-
-
-@app.route("/edit", methods=["POST"])
-def edit():
-    data_input = request.json
-    if not data_input:
-        return jsonify({"error": "Invalid request"}), 400
-
-    current_brd = data_input.get("current_brd")
-    instruction = data_input.get("instruction")
-
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
-    prompt = f"""
-    Update the following BRD JSON based on the instruction.
-    Return only valid JSON.
-
-    BRD:
-    {json.dumps(current_brd)}
-
-    Instruction:
-    {instruction}
-    """
-
-    data = {
-        "model": "deepseek/deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}]
-    }
-
-    response = requests.post(url, headers=headers, json=data, timeout=30)
-    result = response.json()
-
-    if "choices" not in result:
-        return jsonify({"error": "AI service failed"}), 500
-
-    ai_reply = result["choices"][0]["message"]["content"]
-    ai_reply = ai_reply.replace("```json", "").replace("```", "").strip()
-
+# ----------------------------------
+# AUTO WEB SCRAPER
+# ----------------------------------
+def scrape_product_data(product_url):
     try:
-        updated_json = json.loads(ai_reply)
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+
+        response = requests.get(product_url, headers=headers, timeout=10)
+
+        if response.status_code != 200:
+            return "", ""
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Extract title
+        title = ""
+        if soup.title:
+            title = soup.title.string.strip()
+
+        # Extract meta description
+        description = ""
+        meta_desc = soup.find("meta", attrs={"name": "description"})
+        if meta_desc and meta_desc.get("content"):
+            description = meta_desc["content"]
+
+        return title, description
+
     except:
-        updated_json = {"error": "Invalid JSON from AI"}
-
-    return jsonify(updated_json)
+        return "", ""
 
 
+# ----------------------------------
+# ECO ANALYZE API
+# ----------------------------------
 @app.route("/eco-analyze", methods=["POST"])
 def eco_analyze():
     data = request.json
@@ -170,44 +71,49 @@ def eco_analyze():
     title = data.get("title", "")
     description = data.get("description", "")
 
+    # Auto scrape if URL provided but no text
+    if product_url and not title and not description:
+        scraped_title, scraped_desc = scrape_product_data(product_url)
+        title = scraped_title
+        description = scraped_desc
+
     if not title and not description:
-        return jsonify({"error": "Product title or description required"}), 400
+        return jsonify({"error": "Unable to fetch product data"}), 400
 
     result = eco_analysis(title, description, product_url)
     return jsonify(result)
 
 
+# ----------------------------------
+# ECO AI FUNCTION
+# ----------------------------------
 def eco_analysis(title, description, product_url):
     url = "https://openrouter.ai/api/v1/chat/completions"
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 
     prompt = f"""
-    You are an EcoScan system.
+You are an Eco Product Analysis system.
 
-    Product URL: {product_url}
-    Title: {title}
-    Description: {description}
+Product URL: {product_url}
+Title: {title}
+Description: {description}
 
-    Return only valid JSON in this format:
+Return ONLY valid JSON:
 
-    {{
-      "scan_result": {{
-        "eco_score": 0-100,
-        "verdict": "Eco Approved / Use With Caution / Not Eco Friendly",
-        "impact_level": "Low / Moderate / High",
-        "confidence": "High / Medium / Low"
-      }},
-      "signals": {{
-        "positive": [],
-        "negative": []
-      }},
-      "impact_insight": "",
-      "recommendation": ""
-    }}
-    """
+{{
+  "eco_score": 0-100,
+  "verdict": "Eco Approved / Use With Caution / Not Eco Friendly",
+  "impact_level": "Low / Moderate / High",
+  "confidence": "High / Medium / Low",
+  "positive_signals": [],
+  "negative_signals": [],
+  "recommendation": ""
+}}
+"""
 
     data = {
         "model": "deepseek/deepseek-chat",
@@ -227,18 +133,13 @@ def eco_analysis(title, description, product_url):
         eco_json = json.loads(ai_reply)
     except:
         eco_json = {
-            "scan_result": {
-                "eco_score": 50,
-                "verdict": "Use With Caution",
-                "impact_level": "Moderate",
-                "confidence": "Low"
-            },
-            "signals": {
-                "positive": [],
-                "negative": ["Unable to analyze properly"]
-            },
-            "impact_insight": "Analysis uncertainty due to limited data.",
-            "recommendation": "Check product material and packaging details."
+            "eco_score": 50,
+            "verdict": "Use With Caution",
+            "impact_level": "Moderate",
+            "confidence": "Low",
+            "positive_signals": [],
+            "negative_signals": ["Analysis failed"],
+            "recommendation": "Check product details manually"
         }
 
     eco_json["status"] = "EcoScan Complete"
@@ -247,42 +148,9 @@ def eco_analysis(title, description, product_url):
     return eco_json
 
 
-def generate_from_text(user_text):
-    url = "https://openrouter.ai/api/v1/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
-    prompt = f"""
-    Extract project information and return valid JSON.
-    Text:
-    {user_text}
-    """
-
-    data = {
-        "model": "deepseek/deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}]
-    }
-
-    response = requests.post(url, headers=headers, json=data, timeout=30)
-    result = response.json()
-
-    if "choices" not in result:
-        return {"error": "AI service failed"}
-
-    ai_reply = result["choices"][0]["message"]["content"]
-    ai_reply = ai_reply.replace("```json", "").replace("```", "").strip()
-
-    try:
-        ai_json = json.loads(ai_reply)
-    except:
-        ai_json = {"error": "Invalid JSON from AI"}
-
-    return ai_json
-
-
+# ----------------------------------
+# RUN SERVER
+# ----------------------------------
 if __name__ == "__main__":
-    print("SERVER STARTING")
+    print("EcoScan Server Starting")
     app.run(host="0.0.0.0", port=5000, debug=True)
